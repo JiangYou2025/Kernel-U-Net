@@ -16,16 +16,13 @@ import torch.nn as nn
 from torch import optim
 
 from models import NKUNet
-from dataset_provider import data_provider
+from dataset_provider import *
 
 from torchvision.transforms import RandomRotation, RandomAffine, RandomErasing, RandomGrayscale, RandomApply, RandomHorizontalFlip,RandomAdjustSharpness,RandomCrop
 from torchvision.transforms.v2 import ColorJitter
 
-path=""
-device="cuda:0"
-warnings.filterwarnings('ignore')
-transforms = RandomErasing(p=0.3, scale=(0.02, 0.23)).to(device)
 
+warnings.filterwarnings('ignore')
 
 def RSE(pred, true):
     return np.sqrt(np.sum((true - pred) ** 2)) / np.sqrt(np.sum((true - true.mean()) ** 2))
@@ -242,6 +239,9 @@ class Exp_Main(Exp_Basic):
         self.time_cost_list = []
 
         self.args = args
+        self.transforms = RandomErasing(p=0.3, scale=(0.02, 0.23)).to(self.args.device)
+
+        self.MSELoss = nn.MSELoss(reduce=False)
 
     def _build_model(self):
         model_dict = {
@@ -249,9 +249,9 @@ class Exp_Main(Exp_Basic):
             #'Transformer': Transformer,
             #'CARDModelLinear': CARDModel,
             #'PatchTSTLinear': PatchTST,
-            'KUNet': NKUNet,
+            'NKUNet': NKUNet,
         }
-        model = model_dict[self.args.model](self.args).float().to(device)
+        model = model_dict[self.args.model](self.args).float().to(self.device)
         print(model)
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
@@ -363,7 +363,7 @@ class Exp_Main(Exp_Basic):
                 batch_x = batch_x
 
                 if self.args.use_random_erase:
-                  batch_x = transforms(batch_x)
+                  batch_x = self.transforms(batch_x)
                 batch_y = batch_y
 
                 dec_inp= None
@@ -430,8 +430,8 @@ class Exp_Main(Exp_Basic):
             self.train_mse_list.append(train_loss)
             if not self.args.train_only:
                 if True or epoch % 10 == 0:
-                  vali_loss = self.vali(vali_data, vali_loader, criterion)
-                  test_loss = self.vali(test_data, test_loader, criterion)
+                  vali_loss = self.vali(vali_data, vali_loader, criterion=self.MSELoss)
+                  test_loss = self.vali(test_data, test_loader, criterion=self.MSELoss)
                   self.test_mse_list.append(test_loss)
                   self.val_mse_list.append(vali_loss)
 
@@ -519,7 +519,7 @@ class Exp_Main(Exp_Basic):
                 preds.append(pred)
                 trues.append(true)
                 inputx.append(batch_x.detach().cpu().numpy())
-                if i % 20 == 0:
+                if False and i % 20 == 0:
                     input = batch_x.detach().cpu().numpy()
                     gt = np.concatenate((input[0, :, -1], true[0, :, -1]), axis=0)
                     pd = np.concatenate((input[0, :, -1], pred[0, :, -1]), axis=0)
@@ -691,7 +691,7 @@ def search_architecture(
         elif seq_len == 128:
           self.n_height = [2,4,4]
 
-        self.num_layers = 1
+        self.num_kun = 1
         self.num_hidden_layers = [int(i) for i in non_linear_kernel_pos]
         self.kernal_model = []
         for  i in non_linear_kernel_pos:

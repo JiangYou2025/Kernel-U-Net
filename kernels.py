@@ -1,6 +1,4 @@
 import torch
-import torchvision
-import torchvision.transforms as transforms
 from torch import nn
 import numpy as np
 import torch.nn.functional as F
@@ -40,7 +38,7 @@ class MultiHeadAttention(nn.Module):
         return out
 import math
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=500, device=None):
+    def __init__(self, d_model, max_len=500):
         super(PositionalEncoding, self).__init__()
         #self.dropout = nn.Dropout(p=dropout)
         if d_model %2 == 1:
@@ -54,14 +52,14 @@ class PositionalEncoding(nn.Module):
         pe[:, 1::2] = torch.cos(position * div_term)
         #pe = pe.unsqueeze(0).transpose(0, 1)
         #self.register_buffer('pe', pe)
-        device = "cuda:0" if device is None else device
-        self.pe = pe[:,:d_model].to(device) 
+        self.pe = pe[:,:d_model] #.to(device)
+        self.register_buffer('pe_const', self.pe)
 
     def forward(self, x):
         #print(self.pe.shape)
         #print(x.shape) # 128, 10, 50, 1
         #print(self.pe[:x.size(1), :].shape)
-        x = x + self.pe[:x.size(1), : ][None, :,:] # 128, 50, 38
+        x = x + self.pe_const[:x.size(1), : ][None, :,:] # 128, 50, 38
         return x
 
 

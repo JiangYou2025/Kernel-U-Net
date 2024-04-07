@@ -1,10 +1,10 @@
 import torch
-import torchvision.transforms as transforms
 from torch import nn
 import torch.nn.functional as F
 import torch.optim as optim
 
 import numpy as np
+from kernels import LSTM, Transformer
 
 class KernelWrapper(nn.Module):
     def __init__(self, kernal, input_dim, input_len, output_dim=1, output_len=1, num_hidden_layers=1, use_relu=True, drop_out_p=0.01):
@@ -30,10 +30,10 @@ class KernelWrapper(nn.Module):
           gap = int((out_size - in_size) / (num_hidden_layers + 1))
           self.hidden_size_list = [in_size + i * gap for i in range(1, num_hidden_layers + 1)]
 
-        if "Linear" in kernal.__name__:
+        if "Linear" in kernal:
 
           for i in range(num_hidden_layers):
-            self.layers.append(kernal(in_size, self.hidden_size_list[i]))
+            self.layers.append(nn.Linear(in_size, self.hidden_size_list[i]))
             if use_relu:
               self.layers.append(nn.Tanh())
               #self.layers.append(nn.ReLU())
@@ -41,13 +41,13 @@ class KernelWrapper(nn.Module):
 
             in_size = self.hidden_size_list[i]
 
-          self.layers.append(kernal(in_size, out_size))
+          self.layers.append(nn.Linear(in_size, out_size))
           self.is_linear_kernel = True
-        elif "Transformer" in kernal.__name__:
-          self.layers.append(kernal(input_dim, input_len, output_dim, output_len, num_hidden_layers))
+        elif "Transformer" in kernal:
+          self.layers.append(Transformer(input_dim, input_len, output_dim, output_len, num_hidden_layers))
 
-        elif "LSTM" in kernal.__name__:
-          self.layers.append(kernal(input_dim, input_len, output_dim, output_len, num_hidden_layers))
+        elif "LSTM" in kernal:
+          self.layers.append(LSTM(input_dim, input_len, output_dim, output_len, num_hidden_layers))
 
         else:
           print("kernal", kernal, "is not recognized")
@@ -353,7 +353,7 @@ class NKUNet(nn.Module):
     def __init__(self, args=None, input_dim=1, input_len=3, n_width=[7], n_height=[5, 4, 4, 3], output_dim=10, output_len=1, hidden_dim=10, num_hidden_layers=0, kernal_model=None):
         super(NKUNet, self).__init__()
         if args is not None:
-            num_layers = 1 if args.num_layers is None else args.num_layers
+            num_kun = 1 if args.num_kun is None else args.num_kun
             num_hidden_layers = num_hidden_layers if args.num_hidden_layers is None else args.num_hidden_layers
             kernal_model = kernal_model if args.kernal_model is None else args.kernal_model
             input_dim = input_dim if args.input_dim is None else args.input_dim
@@ -367,7 +367,7 @@ class NKUNet(nn.Module):
         self.use_chanel_independence = use_chanel_independence
         self.use_instance_norm = use_instance_norm
 
-        self.linear_list = nn.ModuleList([KUNetEncoderDecoder(input_dim, input_len, n_width, n_height, output_dim, output_len, hidden_dim, num_hidden_layers, kernal_model) for _ in range(num_layers)])
+        self.linear_list = nn.ModuleList([KUNetEncoderDecoder(input_dim, input_len, n_width, n_height, output_dim, output_len, hidden_dim, num_hidden_layers, kernal_model) for _ in range(num_kun)])
 
     def forward(self, x): 
         # Input x : [Batch, Length, Channel(M)]
