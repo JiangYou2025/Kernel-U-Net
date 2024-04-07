@@ -1,9 +1,9 @@
-# (Arxiv'24) Kernel-U-Net: Symmetric and Hierarchical Architecture for Multivariate Time Series Forecasting
+# (arXiv'24) Kernel-U-Net: Symmetric and Hierarchical Architecture for Multivariate Time Series Forecasting
 
 This Official repository contains PyTorch codes for Kernel-U-Net: Symmetric and Hierarchical Architecture for Multivariate Time Series Forecasting [paper](https://arxiv.org/abs/2401.01479).
 
 ## Kernel-U-Net
-> 🌟 If you find this resource helpful, please consider to star this repository and cite our research:
+> 🌟 If you find this resource useful, consider adding a star to this repository and citing our research:
 
 ```tex
 @inproceedings{you2024kun,
@@ -15,18 +15,17 @@ This Official repository contains PyTorch codes for Kernel-U-Net: Symmetric and 
 ```
 In case of any questions, bugs, suggestions or improvements, please feel free to open an issue.
 
-
-
 ## Designs
 
-**Independent Patch Manipulation**: Seperated Patch manipulation and kernel operation.
+**Separate Patch Operations**: Separate patch operations and kernel operations allow for fast meta-operations on patches and easy kernel customization.
 
-**Kernel Customisation**: Flexibility in kernel customization to adapt to specific datasets
+**Kernel Customization**: Flexibility of kernel customization to fit specific data sets
 
+![fig3](./figures/structure_kun_3.png)
 
 ## Main Results
 
-![fig4](./figures/results.png)
+![fig4](./figures/kun_result.png)
 
 
 ## Get Started
@@ -43,5 +42,5 @@ bash scripts/script_ETTh2.sh
 
 ## Contact
 
-If you have any questions or concerns, please contact us: 
+If you have any questions or concerns, please contact us: [Kernel-U-Net@github.com]
 
