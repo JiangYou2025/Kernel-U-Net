@@ -191,3 +191,56 @@ class LSTM(nn.Module):
         #x = x.reshape(-1, self.out_size)
         return x
 
+class RNN(nn.Module):
+    def __init__(self, input_dim, input_len, output_dim, output_len, num_hidden_layers=1, hidden_size=128, drop_out=0.05):
+        super(RNN, self).__init__()
+
+        self.input_dim = input_dim
+        self.input_len = input_len
+        self.output_dim = output_dim
+        self.output_len = output_len
+
+        #encoding
+        #in_size = input_len*input_dim
+        #out_size = 1*output_dim
+        #decoding
+        #in_size = 1*input_dim
+        #out_size = output_len*output_dim
+
+        self.in_size = input_len*input_dim
+        self.out_size = output_len*output_dim
+
+        self.linear_skip = nn.Linear(self.in_size, self.out_size)
+
+        # set parameters
+        self.hidden_size = hidden_size
+        self.num_layers = num_hidden_layers
+        self.drop_out = drop_out
+
+        self.rnn = nn.RNN(input_dim, self.hidden_size, self.num_layers, dropout=self.drop_out, batch_first=True) # input, hidden, num_layer
+        self.dropout = nn.Dropout(self.drop_out)
+
+        self.relu = nn.ReLU()
+        self.linear_1 = nn.Linear(hidden_size * input_len, self.out_size)
+        self.linear_2 = nn.Linear(self.out_size, self.out_size)
+
+    def forward(self, x):
+        #print("RNN input x.shape", x.shape)
+        #x = x.reshape(-1, self.input_len, self.input_dim)
+        residual = x.reshape(-1, self.in_size)
+        #print("RNN  x.reshape(-1, self.input_len, self.input_dim)", x.shape)
+
+        x, _ = self.rnn(x)
+
+        x = x.reshape(-1, self.hidden_size * self.input_len)
+        #print("RNN x.shape  x = x.reshape(-1, self.hidden_size * self.input_len)", x.shape)
+        x = self.relu(self.dropout(self.linear_1(x)))
+        x = self.dropout(self.linear_2(x))
+        x = F.relu(x + self.linear_skip(residual))
+
+        x = x.reshape(-1, self.output_len, self.output_dim)
+        #x = x.transpose(1,2)
+        #print("RNN self.linear_out(x)", x.shape)
+        #x = x.reshape(-1, self.out_size)
+        return x
+
