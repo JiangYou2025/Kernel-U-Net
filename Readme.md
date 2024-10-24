@@ -45,7 +45,7 @@ In case of any questions, bugs, suggestions or improvements, please feel free to
 2. Run the python script for example
 
 ```
-from kunlib import KUNet
+from kunlib import KUNet, Linear, LSTM, Transformer
 import torch
 
 kun = KUNet(input_dim=128, input_len=8, 
