@@ -31,7 +31,7 @@ In case of any questions, bugs, suggestions or improvements, please feel free to
 
 **Kernel Customization**: Flexible kernel customization for rapid development and testing
 
-![fig3](./figures/architecture_kernel_unet.png.png)
+![fig3](./figures/architecture_kernel_unet.png)
 
 ## Main Results
 
