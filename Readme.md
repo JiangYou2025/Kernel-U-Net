@@ -27,7 +27,7 @@ In case of any questions, bugs, suggestions or improvements, please feel free to
 
 ## Designs
 
-**Separate Patch Operations**: Separated patch partition and kernel operations allows fast meta-operations on patches and easy kernel customization.
+**Separate patch operations**: Separate patch partitions and kernel operations allow fast meta-operations on patches and easy kernel customization.
 
 **Kernel Customization**: Flexible kernel customization for rapid development and testing
 
