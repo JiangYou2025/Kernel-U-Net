@@ -13,6 +13,7 @@ def update_params(self, params):
     self.params = params 
     for key, value in params.items():
         setattr(self, key, value)  # Set the attribute from params
+
 class Kernel(nn.Module):
     def __init__(self, input_dim, input_len, 
                  output_dim, output_len, params={}):
@@ -41,6 +42,7 @@ class KernelWrapper(nn.Module):
 
         # kernel : kernel(input_dim, input_len, output_dim, output_len)
         assert (issubclass(kernel, Kernel) or issubclass(kernel, nn.Module))
+
         if isinstance(kernel, nn.Module) : 
           print(f"kernel {kernel} heiritated nn.Module may not adapt.")
 
@@ -57,10 +59,12 @@ class KernelWrapper(nn.Module):
         self.hidden_size_list = []
 
         if issubclass(kernel, Kernel):
-            print("kernel ", kernel, "is a Kernel")
+            if verbose:
+              print("kernel ", kernel, "is a Kernel")
             self.kernel = kernel(input_dim, input_len, output_dim, output_len, params=params)
         elif issubclass(kernel, nn.Linear):
-            print("kernel ", kernel, "is a nn.Linear Kernel")
+            if verbose:
+              print("kernel ", kernel, "is a nn.Linear Kernel")
             self.kernel = kernel(input_dim*input_len, output_dim*output_len)
         else:
             assert False, f"kernel {kernel} is not recognized"
