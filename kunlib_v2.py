@@ -8,75 +8,71 @@ from torch import nn
 from torch import Tensor
 import torch.nn.functional as F
 
+def update_params(self, params):
+    # Iterate over all fields in the class and update if they exist in params
+    self.params = params 
+    for key, value in params.items():
+        setattr(self, key, value)  # Set the attribute from params
+class Kernel(nn.Module):
+    def __init__(self, input_dim, input_len, 
+                 output_dim, output_len, params={}):
+        super(Kernel, self).__init__()
+        self.input_dim = input_dim
+        self.input_len = input_len
+        self.output_dim = output_dim
+        self.output_len = output_len 
+        self.params = params 
+
+        self.is_in_encoder = False #input_len >= output_len
+        self.is_in_decoder = False #input_len >= output_len
+
+    def update_params(self, params):
+        # Iterate over all fields in the class and update if they exist in params
+        self.params = params 
+        for key, value in params.items():
+            setattr(self, key, value)  # Set the attribute from params
+    
 class KernelWrapper(nn.Module):
-    def __init__(self, kernal, input_dim, input_len, 
+    def __init__(self, kernel, input_dim, input_len, 
                  output_dim=1, output_len=1, 
-                 num_hidden_layers=1, use_relu=True, drop_out_p=0.01, 
-                 mode="concate", verbose=False):
+                 kernel_hidden_layer=1,  
+                 params={},verbose=False):
         super(KernelWrapper, self).__init__()
 
-        # kernal : kernal(input_dim, input_len, output_dim, output_len)
+        # kernel : kernel(input_dim, input_len, output_dim, output_len)
+        assert (issubclass(kernel, Kernel) or issubclass(kernel, nn.Module))
+        if isinstance(kernel, nn.Module) : 
+          print(f"kernel {kernel} heiritated nn.Module may not adapt.")
 
         self.input_dim, self.input_len, self.output_dim, self.output_len = \
                         input_dim, input_len, output_dim, output_len
         self.verbose = verbose
-        self.num_hidden_layers = num_hidden_layers
+        self.unet_skip_concat = False
+        self.unet_skip = False
+        self.transpose = False
+        params["kernel_hidden_layer"] = kernel_hidden_layer
+        
+        update_params(self, params)
+
         self.hidden_size_list = []
-        self.layers = []
-        in_size = input_len * input_dim
-        out_size = output_len * output_dim
 
-        self.is_linear_kernel = False
-
-        if in_size >= out_size:
-          gap = int((in_size - out_size) / (num_hidden_layers + 1))
-          self.hidden_size_list = [in_size - i * gap for i in range(1, num_hidden_layers + 1)]
+        if issubclass(kernel, Kernel):
+            print("kernel ", kernel, "is a Kernel")
+            self.kernel = kernel(input_dim, input_len, output_dim, output_len, params=params)
+        elif issubclass(kernel, nn.Linear):
+            print("kernel ", kernel, "is a nn.Linear Kernel")
+            self.kernel = kernel(input_dim*input_len, output_dim*output_len)
         else:
-          gap = int((out_size - in_size) / (num_hidden_layers + 1))
-          self.hidden_size_list = [in_size + i * gap for i in range(1, num_hidden_layers + 1)]
-
-        if "Linear" in kernal.__name__:
-
-          for i in range(num_hidden_layers):
-            self.layers.append(kernal(in_size, self.hidden_size_list[i]))
-            if use_relu:
-              self.layers.append(nn.Tanh())
-              #self.layers.append(nn.ReLU())
-            self.layers.append(nn.Dropout(drop_out_p))
-
-            in_size = self.hidden_size_list[i]
-
-          self.layers.append(kernal(in_size, out_size))
-          self.is_linear_kernel = True
-        elif "Transformer" in kernal.__name__:
-          self.layers.append(kernal(input_dim, input_len, output_dim, output_len, num_hidden_layers))
-
-        elif "LSTM" in kernal.__name__:
-          self.layers.append(kernal(input_dim, input_len, output_dim, output_len, num_hidden_layers))
-
-        else:
-          print("kernal", kernal, "is not recognized")
-
-
-        self.layers = nn.Sequential(* self.layers)
-
-
-        self.next_layer_lag = 0
-        self.next_d_model = 0
-        self.shuffuled_index = []
-
+            assert False, f"kernel {kernel} is not recognized"
+            
         self._unet_skip_output = None
         self._unet_skip_input = None
 
-        #self.linear_unet_skip_input = nn.Linear(self.input_dim, self.input_dim)
-
-        self.transpose=False
-        self.concat = True if mode == "concate" else False
 
     def f(self, x):
         if self.verbose : 
           print("---KernelWrapper.f(x) Input x.shape: ", x.shape)
-        x = self.layers(x)
+        x = self.kernel(x)
         if self.verbose : 
           print("---KernelWrapper.f(x) Output x.shape: ", x.shape)
         return x
@@ -91,110 +87,431 @@ class KernelWrapper(nn.Module):
               print("---_unet_skip_input", self._unet_skip_input)
 
         if self.transpose and self._unet_skip_input is not None:
-          #print("--x.shape", x.shape)
-          if np.prod(x.shape) == np.prod(self._unet_skip_input.shape):
-            #print( self.concat, x.shape)
-            if self.concat:
-              x = torch.cat([x, self._unet_skip_input.reshape(x.shape)], dim=-1)
-              #print( "after, ", self.concat, x.shape)
-            else:
-              x = x + self._unet_skip_input.reshape(x.shape)
-            #print("_unet_skip_input.shape", self._unet_skip_input.shape)
-          #x[len(self._unet_skip_input):] = x[len(self._unet_skip_input):] + self._unet_skip_input
+            if self.verbose : 
+                print("self.transpose and self._unet_skip_input")
+                print("--x.shape", x.shape)
+            if np.prod(x.shape) == np.prod(self._unet_skip_input.shape):
+                if self.verbose : 
+                    print("self.unet_skip_concat, x.shape", self.unet_skip_concat, x.shape)
+                if self.unet_skip_concat:
+                    x = torch.cat([x, self._unet_skip_input.reshape(x.shape)], dim=-1)
+                    #print( "after, ", self.unet_skip_concat, x.shape)
+                else:
+                    x = x + self._unet_skip_input.reshape(x.shape)
+                #print("_unet_skip_input.shape", self._unet_skip_input.shape)
+            #x[len(self._unet_skip_input):] = x[len(self._unet_skip_input):] + self._unet_skip_input
         #x = x.transpose(1, 2)   # # (batch, d_model , lag) to (batch, lag, d_model)
-
-        #print("x.shape", x.shape)
+        else:
+            pass
+        if self.verbose : 
+            print("reshape - > x.shape", x.shape)
         x = x.reshape(-1, self.input_len, self.input_dim)
-        if self.is_linear_kernel:
-          x = x.reshape(-1, self.input_len * self.input_dim)
+        
+        if isinstance(self.kernel, nn.Linear):
+            x = x.reshape(-1, self.input_len * self.input_dim)
 
-        #print("x.reshape", x.shape)
+        if self.verbose : 
+            print("after reshape - > x.shape", x.shape)
         x = self.f(x)
 
-        if self.is_linear_kernel:
-          x = x.reshape(-1, self.output_len, self.output_dim)
+        if self.verbose : 
+            print("after x = self.f(x) - > x.shape", x.shape)
 
-        #print("x.shape", x.shape)
+        if isinstance(self.kernel, nn.Linear):
+            x = x.reshape(-1, self.output_len, self.output_dim)
         assert x.shape[1] == self.output_len and x.shape[2] == self.output_dim
 
         if not self.transpose:
           self._unet_skip_output = x
         return x
 
-
-class KUNetEncoder(nn.Module):
+class Linear(Kernel):
     def __init__(self, input_dim, input_len, 
-                 n_width=1, n_height=1, 
-                 output_dim=1, output_len=1, 
-                 hidden_dim=20, num_hidden_layers=1, 
-                 kernal_model=nn.Linear, verbose=False):
+                 output_dim, output_len, params={}):
+        super(Linear, self).__init__(input_dim, input_len, 
+                 output_dim, output_len)
+        # declear parameters
+        self.activation = "tanh"
+        self.drop_out_p = 0.05
+        self.kernel_hidden_layer = 0
+        self.update_params(params=params)
+
+        # compute input and output size
+        self.in_size = input_len*input_dim
+        self.out_size = output_len*output_dim
+
+        # prepare layers
+        self.layers = []
+
+        # check in encoder or decoder 
+        self.is_in_encoder = (self.input_len >= self.output_len)
+        self.is_in_decoder = not self.is_in_encoder
+
+        # in encoder
+        if self.is_in_encoder:
+          gap = int((self.in_size - self.out_size) / (self.kernel_hidden_layer + 1))
+          self.hidden_size_list = [self.in_size - i * gap for i in range(1, self.kernel_hidden_layer + 1)]
+        
+        # in decoder
+        else:
+          gap = int((self.out_size - self.in_size) / (self.kernel_hidden_layer + 1))
+          self.hidden_size_list = [self.in_size + i * gap for i in range(1, self.kernel_hidden_layer + 1)]
+        # add linear layers
+        for i in range(self.kernel_hidden_layer):
+            self.layers.append(nn.Linear(self.in_size, self.hidden_size_list[i]))
+
+            if self.activation.lower() == "relu":
+                self.layers.append(nn.ReLU())
+            elif self.activation.lower() == "tanh": 
+                self.layers.append(nn.Tanh())
+
+            self.layers.append(nn.Dropout(self.drop_out_p))
+            self.in_size = self.hidden_size_list[i]
+
+        self.layers.append(nn.Linear(self.in_size, self.out_size))
+
+        self.layers = nn.Sequential(* self.layers)
+
+    def forward(self, x):
+        x = x.reshape(-1, self.input_len * self.input_dim)
+        #print("x.shape,", x.shape)
+        x = self.layers(x)
+        x = x.reshape(-1, self.output_len, self.output_dim)
+        #print("x.shape,", x.shape)
+        return x
+
+class LSTM(Kernel):
+    def __init__(self, input_dim, input_len, 
+                 output_dim, output_len, params={}):
+        super(LSTM, self).__init__(input_dim, input_len, 
+                 output_dim, output_len)
+        # declear parameters
+        self.drop_out_p = 0.05
+        self.kernel_hidden_layer = 0
+        self.update_params(params=params)
+
+        self.lstm_dim = max(input_dim, output_dim)
+        self.lstm_len = max(input_len, output_len)
+
+        # compute input and output size
+        self.in_size = input_len*input_dim
+        self.out_size = output_len*output_dim
+        self.lstm_size = self.lstm_dim*self.lstm_len
+
+        # prepare layers
+        self.layers = []
+
+        # check in encoder or decoder 
+        self.is_in_encoder = (self.input_len >= self.output_len)
+        self.is_in_decoder = not self.is_in_encoder
+
+        # Define the LSTM and Linear layers
+        self.linear_projection_in = nn.Linear(self.in_size, self.lstm_size)
+        self.linear_projection_out = nn.Linear(self.lstm_size, self.out_size)
+
+        self.lstm = nn.LSTM(self.lstm_dim, self.lstm_dim, 
+                            self.kernel_hidden_layer, dropout=self.drop_out_p, 
+                            batch_first=True)
+
+    def forward(self, x):
+        """
+        Forward pass for LSTM. If we are in encoder mode, process the input sequence through LSTM
+        and use the last hidden state to compute the final output using the linear layer.
+        """
+        #print(x.shape)
+        x = x.reshape(-1, self.in_size)
+        #print(x.shape)
+        x = self.linear_projection_in(x)
+        #print(x.shape)
+        x = x.reshape(-1, self.lstm_len, self.lstm_dim)
+        #print(x.shape)
+
+        # Pass through LSTM
+        x, (h_n, c_n) = self.lstm(x)  # x, lstm_out contains all hidden states, h_n is the last hidden state
+
+        # Use the last hidden state (h_n) for linear transformation
+        #print(x.shape, h_n.shape, c_n.shape)
+        # Apply linear transformation
+        x = x.reshape(-1, self.lstm_size)
+        x = self.linear_projection_out(x)
+        x = x.reshape(-1, self.output_len, self.output_dim)
+        #print(x.shape)
+        return x
+    
+class RNN(Kernel):
+    def __init__(self, input_dim, input_len, 
+                 output_dim, output_len, params={}):
+        super(RNN, self).__init__(input_dim, input_len, 
+                 output_dim, output_len)
+        # declear parameters
+        self.drop_out_p = 0.05
+        self.kernel_hidden_layer = 0
+        self.update_params(params=params)
+
+
+        self.lstm_dim = max(input_dim, output_dim)
+        self.lstm_len = max(input_len, output_len)
+
+        # compute input and output size
+        self.in_size = input_len*input_dim
+        self.out_size = output_len*output_dim
+        self.lstm_size = self.lstm_dim*self.lstm_len
+
+        # prepare layers
+        self.layers = []
+
+        # check in encoder or decoder 
+        self.is_in_encoder = (self.input_len >= self.output_len)
+        self.is_in_decoder = not self.is_in_encoder
+
+        # Define the LSTM and Linear layers
+        self.linear_projection_in = nn.Linear(self.in_size, self.lstm_size)
+        self.linear_projection_out = nn.Linear(self.lstm_size, self.out_size)
+
+        self.lstm = nn.RNN(self.lstm_dim, self.lstm_dim, 
+                            self.kernel_hidden_layer, dropout=self.drop_out_p, 
+                            batch_first=True)
+
+    def forward(self, x):
+        """
+        Forward pass for LSTM. If we are in encoder mode, process the input sequence through LSTM
+        and use the last hidden state to compute the final output using the linear layer.
+        """
+        #print(x.shape)
+        x = x.reshape(-1, self.in_size)
+        #print(x.shape)
+        x = self.linear_projection_in(x)
+        #print(x.shape)
+        x = x.reshape(-1, self.lstm_len, self.lstm_dim)
+        #print(x.shape)
+
+        # Pass through LSTM
+        x, _ = self.lstm(x)  # x, lstm_out contains all hidden states, h_n is the last hidden state
+
+        # Use the last hidden state (h_n) for linear transformation
+        #print(x.shape, h_n.shape, c_n.shape)
+        # Apply linear transformation
+        x = x.reshape(-1, self.lstm_size)
+        x = self.linear_projection_out(x)
+        x = x.reshape(-1, self.output_len, self.output_dim)
+        #print(x.shape)
+        return x
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model, num_heads):
+        super(MultiHeadAttention, self).__init__()
+        self.num_heads = num_heads
+        self.d_model = d_model
+        assert d_model % self.num_heads == 0, "d_model must be divisible by num_heads"
+        self.depth = d_model // self.num_heads
+        
+        # Linear layers for queries, keys, and values
+        self.Wq = nn.Linear(d_model, d_model)
+        self.Wk = nn.Linear(d_model, d_model)
+        self.Wv = nn.Linear(d_model, d_model)
+        
+        # Output linear layer
+        self.fc = nn.Linear(d_model, d_model)
+
+    def forward(self, x, mask=None):
+        batch_size = x.size(0)
+
+        # Linear projections for Q, K, V
+        Q = self.Wq(x).view(batch_size, -1, self.num_heads, self.depth)
+        K = self.Wk(x).view(batch_size, -1, self.num_heads, self.depth)
+        V = self.Wv(x).view(batch_size, -1, self.num_heads, self.depth)
+
+        # Permute to bring num_heads dimension to second position
+        Q = Q.permute(0, 2, 1, 3)
+        K = K.permute(0, 2, 1, 3)
+        V = V.permute(0, 2, 1, 3)
+
+        # Scaled dot-product attention
+        scores = torch.matmul(Q, K.permute(0, 1, 3, 2)) / math.sqrt(self.depth)
+        
+        if mask is not None:
+            mask = mask.unsqueeze(1).unsqueeze(2)  # (batch_size, 1, 1, seq_len)
+            scores = scores.masked_fill(mask == 0, float('-inf'))
+        
+        attention = F.softmax(scores, dim=-1)
+
+        # Weighted sum of value vectors
+        out = torch.matmul(attention, V)
+        out = out.permute(0, 2, 1, 3).contiguous().view(batch_size, -1, self.d_model)
+
+        # Final linear transformation
+        out = self.fc(out)
+        return out
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=500):
+        super(PositionalEncoding, self).__init__()
+        
+        if d_model % 2 == 1:
+            d_model_1 = d_model + 1
+        else:
+            d_model_1 = d_model
+
+        pe = torch.zeros(max_len, d_model_1)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model_1, 2).float() * (-math.log(10000.0) / d_model_1))
+
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe_const', pe[:, :d_model])
+
+    def forward(self, x):
+        x = x + self.pe_const[:x.size(1), :].unsqueeze(0)
+        return x
+
+class AttentionBlock(nn.Module):
+    def __init__(self, d_model, num_heads):
+        super(AttentionBlock, self).__init__()
+        self.multi_head_attention = MultiHeadAttention(d_model, num_heads)
+        self.relu = nn.LeakyReLU()
+        self.linear = nn.Linear(d_model, d_model)
+
+    def forward(self, x, mask=None):
+        # First residual connection
+        residual = x
+        x = self.multi_head_attention(x, mask)
+        x = self.relu(x) + residual
+
+        # Second residual connection
+        residual = x
+        x = self.linear(x)
+        x = x + residual
+
+        return x
+
+class Transformer(Kernel):
+    def __init__(self, input_dim, input_len, 
+                 output_dim, output_len, params={}):
+        super(Transformer, self).__init__(input_dim, input_len, 
+                 output_dim, output_len)
+        # declear parameters
+        self.drop_out_p = 0.05
+        self.kernel_hidden_layer = 0
+        self.num_heads = 2
+        self.update_params(params=params)
+
+
+        self.lstm_dim = max(input_dim, output_dim)
+        self.lstm_len = max(input_len, output_len)
+
+        # compute input and output size
+        self.in_size = input_len*input_dim
+        self.out_size = output_len*output_dim
+        self.lstm_size = self.lstm_dim*self.lstm_len
+
+        # prepare layers
+        self.layers = []
+
+        # check in encoder or decoder 
+        self.is_in_encoder = (self.input_len >= self.output_len)
+        self.is_in_decoder = not self.is_in_encoder
+
+        # Define the LSTM and Linear layers
+        self.linear_projection_in = nn.Linear(self.in_size, self.lstm_size)
+        self.linear_projection_out = nn.Linear(self.lstm_size, self.out_size)
+
+        self.attention = nn.Sequential(*[
+                                AttentionBlock(d_model=self.lstm_dim, 
+                                num_heads=self.num_heads) for i in range(self.kernel_hidden_layer)])
+
+    def forward(self, x):
+        """
+        Forward pass for LSTM. If we are in encoder mode, process the input sequence through LSTM
+        and use the last hidden state to compute the final output using the linear layer.
+        """
+        #print(x.shape)
+        x = x.reshape(-1, self.in_size)
+        #print(x.shape)
+        x = self.linear_projection_in(x)
+        #print(x.shape)
+        x = x.reshape(-1, self.lstm_len, self.lstm_dim)
+        #print(x.shape)
+
+        # Pass through LSTM
+        x = self.attention(x)  # x, lstm_out contains all hidden states, h_n is the last hidden state
+
+        # Use the last hidden state (h_n) for linear transformation
+        #print(x.shape, h_n.shape, c_n.shape)
+        # Apply linear transformation
+        x = x.reshape(-1, self.lstm_size)
+        x = self.linear_projection_out(x)
+        x = x.reshape(-1, self.output_len, self.output_dim)
+        #print(x.shape)
+        return x
+class KUNetEncoder(nn.Module):
+    def __init__(self, input_dim=128, input_len=4, 
+                 n_width=[1], n_height=[4, 4], 
+                 output_dim=128, output_len=1, 
+                 hidden_dim=[128]*3, 
+                 kernel=[nn.Linear]*3, kernel_hidden_layer=[1]*3, 
+                 verbose=False, params={}):
         super(KUNetEncoder, self).__init__()
-        self.hidden_dim = hidden_dim
-        self.num_hidden_layers = num_hidden_layers
+        self.input_dim = input_dim
+        self.input_len = input_len
         self.n_width = n_width
         self.n_height = n_height
-        self.input_dim = input_dim
         self.output_dim = output_dim
-        self.input_len = input_len
         self.output_len = output_len
+        self.hidden_dim = hidden_dim
+        self.kernel = kernel
+        self.kernel_hidden_layer = kernel_hidden_layer
 
-        self.verbose=verbose
+        self.verbose = verbose
 
-        if isinstance(n_width, int):
-          self.n_width = [n_width]
-        if isinstance(n_height, int):
-          self.n_height = [n_height]
+        update_params(self, params)
 
-        # Create model Optic Nerve transformer
+        assert isinstance(n_width, list)
+        assert isinstance(n_height, list)
+        assert isinstance(kernel, list)
+        assert isinstance(hidden_dim, list)
+        assert isinstance(kernel_hidden_layer, list)
+
+        # Create lag_list for  Optic Nerve transformer model
         # lag_list = [lag, n_height_1, ...,n_height_n, n_width_1, n_width_n]
-        #self.attention_layers_0 = MultiLayerModel(d_model, num_heads, num_layers, lag=lag, out_size=d_model)
-        #self.attention_layers_1 = MultiLayerModel(d_model, num_heads, num_layers, lag=n_height, out_size=d_model)
-        #self.attention_layers_2 = MultiLayerModel(d_model, num_heads, num_layers, lag=n_width, out_size=out_size)
-
         self.lag_list = [input_len]
         if not(len(self.n_height) == 1 and self.n_height[0] ==1):
             self.lag_list =  self.lag_list + list(reversed(self.n_height))
         if not(len(self.n_width) == 1 and  self.n_width[0] ==1):
             self.lag_list =  self.lag_list + list(reversed(self.n_width))
-        print(self.lag_list)
-        print(hidden_dim)
-        if isinstance(kernal_model, list):
-          kernal_model_list = kernal_model
-          num_hidden_layers_list = num_hidden_layers
-          hidden_dim_list = hidden_dim
-          num_hidden_layers = num_hidden_layers_list[0]
-          kernal_model = kernal_model_list[0]
-          hidden_dim = hidden_dim_list[0]
-          self.layers = [KernelWrapper(kernal_model, 
-                                       input_dim=input_dim, input_len=self.lag_list[0], 
-                                       output_dim=hidden_dim, output_len=1, 
-                                       num_hidden_layers=num_hidden_layers, verbose=verbose)]
-          self.layers = self.layers + [KernelWrapper(kernal_model_list[i+1], 
-                                                     input_dim=hidden_dim_list[i], input_len=l, 
-                                                     output_dim=hidden_dim_list[i+1], output_len=1, 
-                                                     num_hidden_layers=num_hidden_layers_list[i+1], verbose=verbose) for i, l in enumerate(self.lag_list[1:-1])]
+        if self.verbose:
+            print("self.lag_list", self.lag_list)
+            print("hidden_dim", hidden_dim)
 
-          kernal_model = kernal_model_list[len(self.layers)]
-          num_hidden_layers = num_hidden_layers_list[len(self.layers)]
-          hidden_dim = hidden_dim_list[len(self.layers)-1]
-          self.layers.append(KernelWrapper(kernal_model, 
-                                input_dim=hidden_dim, input_len=self.lag_list[-1], 
-                                output_dim=output_dim, output_len=output_len, 
-                                num_hidden_layers=num_hidden_layers, verbose=verbose))
-        else:
-          self.layers = [KernelWrapper(kernal_model, 
-                            input_dim=input_dim, input_len=self.lag_list[0], 
-                            output_dim=hidden_dim, output_len=1, 
-                            num_hidden_layers=num_hidden_layers, verbose=verbose)]
-          self.layers = self.layers + [KernelWrapper(kernal_model,
-                                          input_dim=hidden_dim, input_len=l, 
-                                          output_dim=hidden_dim, output_len=1, 
-                                          num_hidden_layers=num_hidden_layers, verbose=verbose) for l in self.lag_list[1:-1]]
-          self.layers.append(KernelWrapper(kernal_model, 
-                                input_dim=hidden_dim, input_len=self.lag_list[-1], 
-                                output_dim=output_dim, output_len=output_len, 
-                                num_hidden_layers=num_hidden_layers, verbose=verbose))
+        # declear model
+        kernel_list = kernel
+        kernel_hidden_layer_list = kernel_hidden_layer
+        hidden_dim_list = hidden_dim
+        kernel_hidden_layer = kernel_hidden_layer_list[0]
+        kernel = kernel_list[0]
+        hidden_dim = hidden_dim_list[0]
 
+        self.layers = [KernelWrapper(kernel, 
+                                    input_dim=input_dim, input_len=self.lag_list[0], 
+                                    output_dim=hidden_dim, output_len=1, 
+                                    kernel_hidden_layer=kernel_hidden_layer, verbose=verbose, params=params)]
+        self.layers = self.layers + [KernelWrapper(kernel_list[i+1], 
+                                                    input_dim=hidden_dim_list[i], input_len=l, 
+                                                    output_dim=hidden_dim_list[i+1], output_len=1, 
+                                                    kernel_hidden_layer=kernel_hidden_layer_list[i+1], verbose=verbose, params=params) for i, l in enumerate(self.lag_list[1:-1])]
+
+        kernel = kernel_list[len(self.layers)]
+        kernel_hidden_layer = kernel_hidden_layer_list[len(self.layers)]
+        hidden_dim = hidden_dim_list[len(self.layers)-1]
+        self.layers.append(KernelWrapper(kernel, 
+                            input_dim=hidden_dim, input_len=self.lag_list[-1], 
+                            output_dim=output_dim, output_len=output_len, 
+                            kernel_hidden_layer=kernel_hidden_layer, verbose=verbose, params=params))
+         
         self.layers = nn.Sequential(* self.layers)
 
         for i, f in enumerate(self.layers):
@@ -206,7 +523,6 @@ class KUNetEncoder(nn.Module):
 
 
     def forward(self, x):
-
         """
         # reshape
         shape : (batch, [height]*lag, [width]*d_model)
@@ -262,17 +578,16 @@ class KUNetEncoder(nn.Module):
         # x = F.sigmoid(x)
 
         return x
-
 class KUNetDecoder(nn.Module):
-    def __init__(self, input_dim, input_len=1, 
-                 n_width=1, n_height=1, 
-                 output_dim=1, output_len=1, 
-                 hidden_dim=20, num_hidden_layers=1, 
-                 kernal_model=nn.Linear, skip_conn=False, 
-                 concat=False, verbose=False):
+    def __init__(self, input_dim=128, input_len=4, 
+                 n_width=[1], n_height=[4, 4], 
+                 output_dim=128, output_len=1, 
+                 hidden_dim=[128]*3,  kernel_hidden_layer=[1]*3, 
+                 kernel=[nn.Linear]*3, verbose=False,
+                 params={}):
         super(KUNetDecoder, self).__init__()
         self.hidden_dim = hidden_dim
-        self.num_hidden_layers = num_hidden_layers
+        self.kernel_hidden_layer = kernel_hidden_layer
         self.n_width = n_width
         self.n_height = n_height
         self.input_dim = input_dim
@@ -280,18 +595,21 @@ class KUNetDecoder(nn.Module):
         self.input_len = input_len
         self.output_len = output_len
 
-        self.concat = concat
+        self.unet_skip_concat = True
+        self.unet_skip = True
 
         self.verbose=verbose
 
-        if isinstance(n_width, int):
-          self.n_width = [n_width]
-        if isinstance(n_height, int):
-          self.n_height = [n_height]
-
         self.total_width = np.prod(self.n_width) * output_dim
         self.total_height = np.prod(self.n_height) * output_len
+ 
+        update_params(self, params)
 
+        assert isinstance(n_width, list)
+        assert isinstance(n_height, list)
+        assert isinstance(kernel, list)
+        assert isinstance(hidden_dim, list)
+        assert isinstance(kernel_hidden_layer, list)
 
         # Create model Optic Nerve transformer
         # lag_list = [lag, n_height_1, ...,n_height_n, n_width_1, n_width_n]
@@ -305,46 +623,33 @@ class KUNetDecoder(nn.Module):
         if not(len(self.n_height) == 1 and self.n_height[0] ==1):
             self.lag_list =  self.lag_list + list(self.n_height) #[10, 10]
 
-        if isinstance(kernal_model, list):
-          kernal_model_list = list(reversed(kernal_model))
-          num_hidden_layers_list = list(reversed(num_hidden_layers))
-          hidden_dim_list = list(reversed(hidden_dim))
-          num_hidden_layers = num_hidden_layers_list[0]
-          kernal_model = kernal_model_list[0]
-          hidden_dim = hidden_dim_list[0]
-          self.layers = [KernelWrapper(kernal_model, 
-                            input_dim=input_dim, input_len=1, 
-                            output_dim=hidden_dim, output_len=self.lag_list[1], 
-                            num_hidden_layers =num_hidden_layers, verbose=verbose)]
+        # declear model
+        kernel_list = list(reversed(kernel))
+        kernel_hidden_layer_list = list(reversed(kernel_hidden_layer))
+        hidden_dim_list = list(reversed(hidden_dim))
+        kernel_hidden_layer = kernel_hidden_layer_list[0]
+        kernel = kernel_list[0]
+        hidden_dim = hidden_dim_list[0]
+        self.layers = [KernelWrapper(kernel, 
+                        input_dim=input_dim, input_len=1, 
+                        output_dim=hidden_dim, output_len=self.lag_list[1], 
+                        kernel_hidden_layer =kernel_hidden_layer, verbose=verbose, params=params)]
 
-          multiple = 2 if self.concat else 1
-          #print("self.concat", self.concat)
-          self.layers = self.layers + [KernelWrapper(kernal_model_list[i+1], 
-                                            input_dim=hidden_dim_list[i]*multiple, input_len=1, 
-                                            output_dim=hidden_dim_list[i+1], output_len=l, 
-                                            num_hidden_layers=num_hidden_layers_list[i+1], verbose=verbose) for i, l in enumerate(self.lag_list[2:])]
+        multiple = 2 if self.unet_skip_concat else 1
+        #print("self.concat", self.concat)
+        self.layers = self.layers + [KernelWrapper(kernel_list[i+1], 
+                                        input_dim=hidden_dim_list[i]*multiple, input_len=1, 
+                                        output_dim=hidden_dim_list[i+1], output_len=l, 
+                                        kernel_hidden_layer=kernel_hidden_layer_list[i+1], verbose=verbose, params=params) for i, l in enumerate(self.lag_list[2:])]
 
-          kernal_model = kernal_model_list[-1]
-          num_hidden_layers = num_hidden_layers_list[-1]
-          hidden_dim = hidden_dim_list[-1]
-          self.layers.append(KernelWrapper(kernal_model, 
-                                input_dim=hidden_dim*multiple, input_len=1, 
-                                output_dim=output_dim, output_len=output_len, 
-                                num_hidden_layers=num_hidden_layers, verbose=verbose)) # output_len = 10
-        else:
-          self.layers = [KernelWrapper(kernal_model, 
-                              input_dim=input_dim, input_len=1, 
-                              output_dim=hidden_dim, output_len=self.lag_list[1], 
-                              num_hidden_layers=num_hidden_layers)]
-          self.layers = self.layers + [KernelWrapper(kernal_model, 
-                                            input_dim=hidden_dim, input_len=1, 
-                                            output_dim=hidden_dim, output_len=l, 
-                                            num_hidden_layers=num_hidden_layers, verbose=verbose) for l in self.lag_list[2:]]
-          self.layers.append(KernelWrapper(kernal_model, 
-                                    input_dim=hidden_dim, input_len=1, 
-                                    output_dim=output_dim, output_len=output_len,
-                                    num_hidden_layers=num_hidden_layers, verbose=verbose)) # output_len = 10
-
+        kernel = kernel_list[-1]
+        kernel_hidden_layer = kernel_hidden_layer_list[-1]
+        hidden_dim = hidden_dim_list[-1]
+        self.layers.append(KernelWrapper(kernel, 
+                            input_dim=hidden_dim*multiple, input_len=1, 
+                            output_dim=output_dim, output_len=output_len, 
+                            kernel_hidden_layer=kernel_hidden_layer, verbose=verbose, params=params)) # output_len = 10
+        
         self.layers = nn.Sequential(*self.layers)
 
         for i, f in enumerate(self.layers):
@@ -355,8 +660,6 @@ class KUNetDecoder(nn.Module):
            f.next_d_model = self.output_dim
 
           f.transpose = True
-
-
 
     def forward(self, x):
 
@@ -419,39 +722,31 @@ class KUNetDecoder(nn.Module):
         return x
 
 class KUNetEncoderDecoder(nn.Module):
-    def __init__(self, input_dim=7, input_len=3, n_width=1, n_height=[10, 6, 4], 
-                 latent_dim=10, latent_len=1, output_dim=1, output_len=1, 
-                 hidden_dim=10, num_hidden_layers=0, 
-                 kernal_model=nn.Linear, non_linear_kernel_pos="011",
-                 skip_conn=True, skip_mode='concat', verbose=False):
+    def __init__(self, input_dim=128, input_len=4, 
+                 n_width=[1], n_height=[4, 4], 
+                 latent_dim=128, latent_len=1, 
+                 output_dim=128, output_len=4, 
+                 hidden_dim=[128]*3, 
+                 kernel=[nn.Linear]*3, kernel_hidden_layer=[1, 1, 1], 
+                 verbose=False, params={}):
         super(KUNetEncoderDecoder, self).__init__()
-        self.hidden_dim = hidden_dim
-        self.num_hidden_layers = num_hidden_layers
-        self.n_width = n_width
-        if isinstance(n_height[0], list):
-          n_height_in, n_height_out = n_height[0], n_height[1]
-        else:
-          n_height_in, n_height_out = n_height, n_height
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        self.input_len = input_len
-        self.output_len = output_len
 
-        self.use_unet_skip = skip_conn
-        self.skip_mode = skip_mode
-        self.concat = True if skip_mode=="concat" and skip_conn else False
+        self.unet_skip = True 
+
+        update_params(self, params)
 
         self.encoder = KUNetEncoder(input_dim=input_dim, input_len=input_len, 
-                            n_width=n_width, n_height=n_height_in, 
+                            n_width=n_width, n_height=n_height, 
                             output_dim=latent_dim, output_len=latent_len, 
-                            hidden_dim=hidden_dim, num_hidden_layers=num_hidden_layers, 
-                            kernal_model=kernal_model, verbose=verbose)
+                            hidden_dim=hidden_dim, kernel_hidden_layer=kernel_hidden_layer, 
+                            kernel=kernel, verbose=verbose, params=params)
+        
         self.decoder = KUNetDecoder(input_dim=latent_dim, input_len=latent_len, 
-                            n_width=n_width, n_height=n_height_out, 
+                            n_width=n_width, n_height=n_height, 
                             output_dim=output_dim, output_len=output_len, 
-                            hidden_dim=hidden_dim, num_hidden_layers=num_hidden_layers, 
-                            kernal_model=kernal_model, skip_conn=skip_conn,
-                            concat=self.concat, verbose=verbose)
+                            hidden_dim=hidden_dim, kernel_hidden_layer=kernel_hidden_layer, 
+                            kernel=kernel, verbose=verbose, params=params)
+        
         self.latent_condition = None #torch.zeros((1,1,128))
 
     def forward(self, x):
@@ -471,7 +766,7 @@ class KUNetEncoderDecoder(nn.Module):
         if self.latent_condition is not None:
           z[:, :, 128:256] = self.latent_condition
 
-        if self.use_unet_skip:
+        if self.unet_skip:
           #print("self.encoder(x).shape ", z.shape)
           _unet_skip_output_list = []
           for f in encoder.layers:
@@ -495,71 +790,50 @@ class KUNetEncoderDecoder(nn.Module):
         #y = F.relu(y)
         return y
 
-class NKUNet(nn.Module):
-    """
-    Normalized Kernel U-Net
-    """
-    def __init__(self, args, input_dim=1, input_len=3, n_width=[7], n_height=[5, 4, 4, 3], latent_dim=1, latent_len=10, output_dim=10, output_len=1, hidden_dim=10, num_hidden_layers=0, kernal_model=None):
-        super(NKUNet, self).__init__()
-        num_layers = 2 if args.num_layers is None else args.num_layers
-        num_hidden_layers = num_hidden_layers if args.num_hidden_layers is None else args.num_hidden_layers
-        kernal_model = kernal_model if args.kernal_model is None else args.kernal_model
-        input_dim = input_dim if args.input_dim is None else args.input_dim
-        input_len = input_len if args.input_len is None else args.input_len
-        n_width = n_width if args.n_width is None else args.n_width
-        n_height = n_height if args.n_height is None else args.n_height
-        output_dim = output_dim if args.output_dim is None else args.output_dim
-        output_len = output_len if args.output_len is None else args.output_len
-        latent_dim = latent_dim if args.latent_dim is None else args.latent_dim
-        latent_len = latent_len if args.latent_len is None else args.latent_len
-        hidden_dim = hidden_dim if args.hidden_dim is None else args.hidden_dim
-        self.use_chanel_independence = args.use_chanel_independence
-        self.use_instance_norm = args.use_instance_norm
-
-        self.args = args
-        self.T = self.args.pred_len
-
-        self.linear_list = nn.ModuleList([KUNetEncoderDecoder(input_dim, input_len, n_width, n_height, latent_dim, latent_len, output_dim, output_len, hidden_dim, num_hidden_layers, kernal_model) for _ in range(num_layers)])
-
-    def forward(self, src):
-        B, L, M = src.shape
-        src = src.transpose(2, 1)
-        output = src.reshape(B * M, L)  # Reshape the input to (batch_size, input_len)
-
-        for i, f in enumerate(self.linear_list):
-            output = f(output)
-        output = output.reshape(B, M, L)  # Reshape the input to (batch_size, input_len)
-        output = output.transpose(2, 1)
-        return output # [Batch, Output length, Channel]
-
 class KUNet(nn.Module):
     def __init__(self, input_dim=1, input_len=8, 
-                 n_width=[1], n_height=[8,8], 
+                 n_width=[1], n_height=[8, 8], 
                  latent_dim=128, latent_len=1, 
                  output_dim=1, output_len=8, 
-                 hidden_dim=128, num_hidden_layers=0, 
-                 kernel=nn.Linear, non_linear_kernel_pos='011',
-                 skip_conn=True, skip_mode="concat",
-                 inverse_norm=False, mean_norm=True,
-                 chanel_independent=True, residual = True, verbose=False):
+                 hidden_dim=[128]*3, kernel_hidden_layer=[1, 1, 1],
+                 kernel=[nn.Linear]*3, verbose=False, 
+                 params={"skip_conn":True, 
+                         "unet_skip_concat":False,
+
+                         "inverse_norm":False,
+                         "mean_norm":False,
+                         "chanel_independent":False,
+                         "residual":False, }):
                  
         super(KUNet, self).__init__()
-        n_enc_layers = len(n_width) + len(n_height) + 1
+
+        self.inverse_norm = False
+        self.mean_norm = False
+        self.chanel_independent = False
+        self.residual = False
+
+        update_params(self, params)
+
+        if isinstance(n_width, int):
+           n_width = [n_width]
+        if isinstance(n_height, int):
+           n_height = [n_height]
+
+        n_enc_layers = 1 + len(n_width) + len(n_height) - (1 if np.prod(n_width) == 1 else 0) - (1 if np.prod(n_height) == 1 else 0)
         if isinstance(hidden_dim, int):
            hidden_dim = [hidden_dim] * n_enc_layers
-        if isinstance(num_hidden_layers, int):
-           num_hidden_layers = [int(i) for i in non_linear_kernel_pos]
-           kernel = [nn.Linear if i == "0" else kernel for i in non_linear_kernel_pos]
+        if isinstance(kernel_hidden_layer, str):
+           kernel_hidden_layer = [int(i) for i in kernel_hidden_layer]
+        if not isinstance(kernel, list):
+           kernel = [nn.Linear if i == 0 else kernel for i in kernel_hidden_layer]
 
-        self.model = KUNetEncoderDecoder(input_dim, input_len, n_width, n_height, 
-                                        latent_dim, latent_len,
-                                        output_dim, output_len, hidden_dim, 
-                                        num_hidden_layers, kernel, non_linear_kernel_pos,
-                                        skip_conn=skip_conn, skip_mode=skip_mode, verbose=verbose)
-        self.inverse_norm = inverse_norm
-        self.mean_norm = mean_norm
-        self.chanel_independent = chanel_independent
-        self.residual = residual
+        self.model = KUNetEncoderDecoder(input_dim=input_dim, input_len=input_len, 
+                                        n_width=n_width, n_height=n_height, 
+                                        latent_dim=latent_dim, latent_len=latent_len,
+                                        output_dim=output_dim, output_len=output_len, 
+                                        hidden_dim=hidden_dim, 
+                                        kernel=kernel, kernel_hidden_layer=kernel_hidden_layer,
+                                        verbose=verbose, params=params)
 
     def forward(self, x):
         B, L, M = x.shape
@@ -594,4 +868,3 @@ class KUNet(nn.Module):
 
     def set_latent_conditions(self, latent):
         self.model.latent_condition = latent
-
