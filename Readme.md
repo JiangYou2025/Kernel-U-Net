@@ -4,7 +4,6 @@
 This Official repository contains PyTorch codes for Kernel-U-Net: Multivariate Time Series Forecasting using Custom Kernels
  [paper](https://arxiv.org/abs/2401.01479).
 
-
 ## Abstract 
 Time series forecasting task predicts future trends based on historical information. Transformer-based U-Net architectures, despite their success in medical image segmentation, have limitations in both expressiveness and computation efficiency in time series forecasting as evidenced in YFormer. To tackle these challenges, we introduce Kernel-U-Net, a flexible and kernel-customizable U-shape neural network architecture. The kernel-U-Net encoder compresses the input series into latent vectors, and its symmetric decoder subsequently expands these vectors into output series. Specifically, Kernel-U-Net separates the procedure of partitioning input time series into patches from kernel manipulation, thereby providing the convenience of customized executing kernels. Our method offers two primary advantages: 1) Flexibility in kernel customization to adapt to specific datasets; and 2) Enhanced computational efficiency, with the complexity of the Transformer layer reduced to linear. Experiments on seven real-world datasets, demonstrate that Kernel-U-Net's performance either exceeds or meets that of the existing state-of-the-art model in the majority of cases in channel-independent settings. The source code for Kernel-U-Net will be made publicly available for further research and application.
 
@@ -12,7 +11,7 @@ Time series forecasting task predicts future trends based on historical informat
 > 🌟 If you find this resource useful, consider adding a star to this repository and citing our research:
 
 ```tex
-@inproceedings{10683862,
+@inproceedings{you_2024_kernel_u_net,
   author={You, Jiang and Cela, Arben and Natowicz, René and Ouanounou, Jacob and Siarry, Patrick},
   booktitle={2024 International Conference on INnovations in Intelligent SysTems and Applications (INISTA)}, 
   title={Kernel-U-Net: Multivariate Time Series Forecasting using Custom Kernels}, 
