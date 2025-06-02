@@ -1,4 +1,4 @@
-# (arXiv'24) Kernel-U-Net: Multivariate Time Series Forecasting using Custom Kernels
+# (Inista 24) Kernel-U-Net: Multivariate Time Series Forecasting using Custom Kernels
 
 
 This Official repository contains PyTorch codes for Kernel-U-Net: Multivariate Time Series Forecasting using Custom Kernels
