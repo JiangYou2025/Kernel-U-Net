@@ -70,6 +70,6 @@ print(x.shape)
 
 ## Contact
 
-If you have any questions or concerns, please contact us: [Kernel-U-Net@github.com]
+If you have any questions or concerns, please contact us: [[Kernel-U-Net@github.com](https://github.com/JiangYou2025/Kernel-U-Net/issues)]
 
 
