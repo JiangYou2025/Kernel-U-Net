@@ -46,24 +46,22 @@ In case of any questions, bugs, suggestions or improvements, please feel free to
 ```
 from kunlib import KUNet, Linear, LSTM, Transformer
 import torch
+kun = KUNet(input_dim=128, input_len=4,
+                 n_width=[1], n_height=[4, 4],
+                 latent_dim=128, latent_len=1,
+                 output_dim=128, output_len=4,
+                 hidden_dim_list=[128}*3,
+                 kernel_list=[Linear, LSTM, Transformer], kernel_hidden_layer_list=[1, 2, 2],
 
-kun = KUNet(input_dim=128, input_len=8, 
-                 n_width=[1], n_height=[8, 8], 
-                 latent_dim=128, latent_len=1, 
-                 output_dim=128, output_len=8, 
-                 hidden_dim=[128]*3, 
-                 kernel=[Linear, LSTM, Transformer], kernel_hidden_layer=[1, 1, 1],
-                 verbose=False, params={"unet_skip":True, 
-                         "unet_skip_concat":True,
-
-                         "inverse_norm":False,
-                         "mean_norm":False,
-                         "chanel_independent":False,
-                         "residual":False, })
+                 unet_skip=True, unet_skip_concat=True,
+                 inverse_norm=False, mean_norm=False,
+                 chanel_independent=False, residual=True,
+                 activation="leaky_relu", num_heads=4,
+                 verbose=True)
 
 print(kun)
 
-x = kun(torch.rand((13,512,128)))
+x = kun(torch.rand((13,64,128)))
 print(x.shape)
 
 ```

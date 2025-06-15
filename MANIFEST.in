@@ -1,0 +1,32 @@
+include README.md
+include Readme.md
+include LICENSE
+include MANIFEST.in
+include setup.py
+include requirements.txt
+
+recursive-include src *.py
+recursive-include figures *.png *.jpg *.jpeg *.gif *.svg
+recursive-include scripts *.py *.sh *.bat
+
+# Jupyter notebooks for examples
+include *.ipynb
+include kun-*.ipynb
+
+# Exclude compiled Python files
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude __pycache__
+global-exclude *.so
+global-exclude .DS_Store
+
+# Exclude git and other version control
+global-exclude .git*
+global-exclude .svn*
+
+# Exclude IDE files
+global-exclude .vscode*
+global-exclude .idea*
+global-exclude *.swp
+global-exclude *.swo 
