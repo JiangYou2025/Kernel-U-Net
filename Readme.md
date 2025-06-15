@@ -50,7 +50,7 @@ kun = KUNet(input_dim=128, input_len=4,
                  n_width=[1], n_height=[4, 4],
                  latent_dim=128, latent_len=1,
                  output_dim=128, output_len=4,
-                 hidden_dim_list=[128}*3,
+                 hidden_dim_list=[128]*3,
                  kernel_list=[Linear, LSTM, Transformer], 
                  kernel_hidden_layer_list=[1, 2, 2],
 
